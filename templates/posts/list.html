@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block title %}게시글 목록 - 게시판 서비스{% endblock %}
+
+{% block content %}
+<div class="posts-header">
+    <h1>게시글 목록</h1>
+    <a href="/posts/new" class="btn btn-primary">새 글 작성</a>
+</div>
+
+{% if posts %}
+<div class="posts-list">
+    {% for post in posts %}
+    <div class="post-card {% if post.is_deleted %}post-deleted{% endif %}">
+        <div class="post-header">
+            <h3>
+                <a href="/posts/{{ post.id }}">{{ post.title }}</a>
+                {% if post.is_deleted %}
+                    <span class="badge badge-danger">삭제됨</span>
+                {% endif %}
+            </h3>
+            <div class="post-meta">
+                <span class="author">작성자: {{ post.author.username }}</span>
+                {% if post.author.is_admin %}
+                    <span class="badge badge-admin">ADMIN</span>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="post-preview">
+            {{ post.content[:200] }}{% if post.content|length > 200 %}...{% endif %}
+        </div>
+
+        <div class="post-footer">
+            <span class="post-date">{{ post.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+            {% if post.updated_at %}
+                <span class="post-updated">(수정됨: {{ post.updated_at.strftime('%Y-%m-%d %H:%M') }})</span>
+            {% endif %}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+{% include 'components/pagination.html' %}
+
+{% else %}
+<div class="empty-state">
+    <p>게시글이 없습니다.</p>
+    <a href="/posts/new" class="btn btn-primary">첫 게시글 작성하기</a>
+</div>
+{% endif %}
+{% endblock %}

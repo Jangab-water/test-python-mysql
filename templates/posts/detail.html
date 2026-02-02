@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block title %}{{ post.title }} - 게시판 서비스{% endblock %}
+
+{% block content %}
+<div class="post-detail">
+    <div class="post-header">
+        <h1>
+            {{ post.title }}
+            {% if post.is_deleted %}
+                <span class="badge badge-danger">삭제됨</span>
+            {% endif %}
+        </h1>
+
+        <div class="post-meta">
+            <div class="author-info">
+                <span class="author">{{ post.author.username }}</span>
+                {% if post.author.is_admin %}
+                    <span class="badge badge-admin">ADMIN</span>
+                {% endif %}
+            </div>
+            <div class="post-dates">
+                <span>작성: {{ post.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+                {% if post.updated_at %}
+                    <span>수정: {{ post.updated_at.strftime('%Y-%m-%d %H:%M') }}</span>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="post-content">
+        {{ post.content | replace('\n', '<br>') | safe }}
+    </div>
+
+    <div class="post-actions">
+        <a href="/posts" class="btn btn-secondary">목록으로</a>
+
+        {% if can_edit %}
+            <a href="/posts/{{ post.id }}/edit" class="btn btn-primary">수정</a>
+        {% endif %}
+
+        {% if can_delete and not post.is_deleted %}
+            <form method="post" action="/posts/{{ post.id }}/delete" style="display: inline;">
+                <button type="submit" class="btn btn-danger" onclick="return confirm('정말 삭제하시겠습니까?')">
+                    삭제
+                </button>
+            </form>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

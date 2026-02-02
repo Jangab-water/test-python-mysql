@@ -1,10 +1,13 @@
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
+from starlette.middleware.sessions import SessionMiddleware
 import logging
+import os
 
 from app import models, schemas, services
 from app.database import async_engine, AsyncSessionLocal
-from app.routers import posts, auth
+from app.routers import posts, auth, views
 
 # Configure logging
 logging.basicConfig(
@@ -55,13 +58,24 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Add session middleware for flash messages
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=os.getenv("SECRET_KEY", "your-secret-key-change-this-in-production")
+)
+
+# Mount static files
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
 # Include routers
-app.include_router(auth.router)
-app.include_router(posts.router)
+app.include_router(auth.router)  # API routes
+app.include_router(posts.router)  # API routes
+app.include_router(views.router)  # HTML view routes
 
 
-@app.get("/")
+@app.get("/api")
 async def root():
+    """API information endpoint"""
     return {
         "message": "게시판 서비스에 오신 것을 환영합니다!",
         "description": "FastAPI + SQLAlchemy (async MySQL) 기반 게시판",

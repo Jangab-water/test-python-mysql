@@ -1,0 +1,17 @@
+{% if has_prev or has_next %}
+<nav class="pagination">
+    {% if has_prev %}
+        <a href="?page={{ page - 1 }}" class="btn btn-secondary">« 이전</a>
+    {% else %}
+        <span class="btn btn-secondary disabled">« 이전</span>
+    {% endif %}
+
+    <span class="page-info">페이지 {{ page }}</span>
+
+    {% if has_next %}
+        <a href="?page={{ page + 1 }}" class="btn btn-secondary">다음 »</a>
+    {% else %}
+        <span class="btn btn-secondary disabled">다음 »</span>
+    {% endif %}
+</nav>
+{% endif %}

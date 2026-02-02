@@ -10,7 +10,7 @@ load_dotenv()
 # Get database URL from environment variable
 SQLALCHEMY_DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "mysql+aiomysql://root:Mysql8#@localhost/dbmod"  # fallback for development
+    "mysql+aiomysql://root:Mysql8#1234@172.17.0.1/dbmod"  # fallback for development
 )
 
 # Get echo setting from environment

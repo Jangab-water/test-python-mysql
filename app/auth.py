@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request, Response
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 import os
@@ -85,3 +85,66 @@ def require_admin(current_user: models.User = Depends(get_current_user)) -> mode
             detail="Admin privileges required"
         )
     return current_user
+
+
+# ============= Cookie-based Authentication for HTML Views =============
+
+COOKIE_NAME = "access_token"
+COOKIE_MAX_AGE = ACCESS_TOKEN_EXPIRE_MINUTES * 60  # Convert to seconds
+
+
+def set_auth_cookie(response: Response, token: str):
+    """Set JWT token in httpOnly cookie"""
+    response.set_cookie(
+        key=COOKIE_NAME,
+        value=f"Bearer {token}",
+        max_age=COOKIE_MAX_AGE,
+        httponly=True,  # Prevent JavaScript access
+        secure=False,  # Set to True in production with HTTPS
+        samesite="lax"  # CSRF protection
+    )
+
+
+def delete_auth_cookie(response: Response):
+    """Delete auth cookie (logout)"""
+    response.delete_cookie(key=COOKIE_NAME)
+
+
+async def get_current_user_optional(
+    request: Request,
+    db: AsyncSession = Depends(get_db)
+) -> Optional[models.User]:
+    """Get current user from cookie or return None"""
+    token = request.cookies.get(COOKIE_NAME)
+    if not token:
+        return None
+
+    # Remove "Bearer " prefix if present
+    if token.startswith("Bearer "):
+        token = token[7:]
+
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            return None
+
+        from .services import get_user_by_username
+        user = await get_user_by_username(db, username=username)
+        return user
+    except JWTError:
+        return None
+
+
+async def get_current_user_from_cookie(
+    request: Request,
+    db: AsyncSession = Depends(get_db)
+) -> models.User:
+    """Get current user from cookie or raise exception"""
+    user = await get_current_user_optional(request, db)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated"
+        )
+    return user
