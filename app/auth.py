@@ -103,6 +103,7 @@ def set_auth_cookie(response: Response, token: str):
         key=COOKIE_NAME,
         value=f"Bearer {token}",
         max_age=COOKIE_MAX_AGE,
+        path="/",  # Cookie available for all paths
         httponly=True,  # Prevent JavaScript access
         secure=False,  # Set to True in production with HTTPS
         samesite="lax"  # CSRF protection
@@ -111,7 +112,7 @@ def set_auth_cookie(response: Response, token: str):
 
 def delete_auth_cookie(response: Response):
     """Delete auth cookie (logout)"""
-    response.delete_cookie(key=COOKIE_NAME)
+    response.delete_cookie(key=COOKIE_NAME, path="/")
 
 
 async def get_current_user_optional(
