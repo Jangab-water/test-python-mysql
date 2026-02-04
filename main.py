@@ -76,9 +76,11 @@ app.add_middleware(
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Include routers
+# Note: views.router must come before posts.router to ensure
+# /posts/new is matched before /posts/{post_id}
 app.include_router(auth.router)  # API routes
+app.include_router(views.router)  # HTML view routes (must be before posts.router)
 app.include_router(posts.router)  # API routes
-app.include_router(views.router)  # HTML view routes
 
 
 @app.get("/api")
