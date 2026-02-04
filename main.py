@@ -1,5 +1,6 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import RedirectResponse
 from contextlib import asynccontextmanager
 from starlette.middleware.sessions import SessionMiddleware
 import logging
@@ -8,6 +9,7 @@ import os
 from app import models, schemas, services
 from app.database import async_engine, AsyncSessionLocal
 from app.routers import posts, auth, views
+from app.auth import RequireLoginException
 
 # Configure logging
 logging.basicConfig(
@@ -57,6 +59,12 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan
 )
+
+
+@app.exception_handler(RequireLoginException)
+async def require_login_exception_handler(request: Request, exc: RequireLoginException):
+    """Redirect to login page when authentication is required"""
+    return RedirectResponse(url="/login", status_code=302)
 
 # Add session middleware for flash messages
 app.add_middleware(

@@ -141,15 +141,17 @@ async def get_current_user_optional(
         return None
 
 
+class RequireLoginException(Exception):
+    """Exception to trigger login redirect"""
+    pass
+
+
 async def get_current_user_from_cookie(
     request: Request,
     db: AsyncSession = Depends(get_db)
 ) -> models.User:
-    """Get current user from cookie or raise exception"""
+    """Get current user from cookie or redirect to login"""
     user = await get_current_user_optional(request, db)
     if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated"
-        )
+        raise RequireLoginException()
     return user
