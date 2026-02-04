@@ -29,7 +29,9 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a password against a hash"""
     # Bcrypt has a 72 byte limit, truncate if necessary
     password_bytes = plain_password.encode('utf-8')[:72]
-    return pwd_context.verify(password_bytes, hashed_password)
+    result = pwd_context.verify(password_bytes, hashed_password)
+    logger.debug(f"[AUTH] Password verification: {'success' if result else 'failed'}")
+    return result
 
 
 def get_password_hash(password: str) -> str:
@@ -48,6 +50,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
         expire = datetime.utcnow() + timedelta(minutes=15)
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    logger.debug(f"[AUTH] Access token created for: {data.get('sub')}")
     return encoded_jwt
 
 
@@ -55,7 +58,8 @@ async def get_current_user(
     token: str = Depends(oauth2_scheme),
     db: AsyncSession = Depends(get_db)
 ) -> models.User:
-    """Get current authenticated user from JWT token"""
+    """Get current authenticated user from JWT token (OAuth2)"""
+    logger.debug("[AUTH] OAuth2 token authentication")
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -65,15 +69,19 @@ async def get_current_user(
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str = payload.get("sub")
         if username is None:
+            logger.warning("[AUTH] OAuth2: No username in token")
             raise credentials_exception
         token_data = schemas.TokenData(username=username)
-    except JWTError:
+    except JWTError as e:
+        logger.warning(f"[AUTH] OAuth2: JWT decode error - {e}")
         raise credentials_exception
 
     from .services import get_user_by_username
     user = await get_user_by_username(db, username=token_data.username)
     if user is None:
+        logger.warning(f"[AUTH] OAuth2: User not found - {token_data.username}")
         raise credentials_exception
+    logger.debug(f"[AUTH] OAuth2: Authenticated user - {user.username}")
     return user
 
 
@@ -87,10 +95,12 @@ async def get_current_active_user(
 def require_admin(current_user: models.User = Depends(get_current_user)) -> models.User:
     """Require admin privileges"""
     if not current_user.is_admin:
+        logger.warning(f"[AUTH] Admin required but user is not admin: {current_user.username}")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin privileges required"
         )
+    logger.debug(f"[AUTH] Admin access granted: {current_user.username}")
     return current_user
 
 
@@ -102,6 +112,7 @@ COOKIE_MAX_AGE = ACCESS_TOKEN_EXPIRE_MINUTES * 60  # Convert to seconds
 
 def set_auth_cookie(response: Response, token: str):
     """Set JWT token in httpOnly cookie"""
+    logger.debug("[AUTH] Setting auth cookie")
     response.set_cookie(
         key=COOKIE_NAME,
         value=f"Bearer {token}",
@@ -115,6 +126,7 @@ def set_auth_cookie(response: Response, token: str):
 
 def delete_auth_cookie(response: Response):
     """Delete auth cookie (logout)"""
+    logger.debug("[AUTH] Deleting auth cookie")
     response.delete_cookie(key=COOKIE_NAME, path="/")
 
 
@@ -124,11 +136,11 @@ async def get_current_user_optional(
 ) -> Optional[models.User]:
     """Get current user from cookie or return None"""
     token = request.cookies.get(COOKIE_NAME)
-    logger.info(f"[AUTH] Path: {request.url.path}, Method: {request.method}")
-    logger.info(f"[AUTH] Cookie token exists: {token is not None}")
+    logger.debug(f"[AUTH] Cookie auth - Path: {request.url.path}, Method: {request.method}")
+    logger.debug(f"[AUTH] Cookie token exists: {token is not None}")
 
     if not token:
-        logger.warning("[AUTH] No token in cookie")
+        logger.debug("[AUTH] No token in cookie")
         return None
 
     # Remove "Bearer " prefix if present
@@ -139,15 +151,18 @@ async def get_current_user_optional(
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str = payload.get("sub")
         if username is None:
-            logger.warning("[AUTH] No username in token payload")
+            logger.warning("[AUTH] Cookie: No username in token payload")
             return None
 
         from .services import get_user_by_username
         user = await get_user_by_username(db, username=username)
-        logger.info(f"[AUTH] User found: {user.username if user else 'None'}")
+        if user:
+            logger.debug(f"[AUTH] Cookie: Authenticated user - {user.username}")
+        else:
+            logger.warning(f"[AUTH] Cookie: User not found - {username}")
         return user
     except JWTError as e:
-        logger.error(f"[AUTH] JWT decode error: {e}")
+        logger.warning(f"[AUTH] Cookie: JWT decode error - {e}")
         return None
 
 
@@ -163,5 +178,6 @@ async def get_current_user_from_cookie(
     """Get current user from cookie or redirect to login"""
     user = await get_current_user_optional(request, db)
     if user is None:
+        logger.debug(f"[AUTH] Login required - redirecting from {request.url.path}")
         raise RequireLoginException()
     return user

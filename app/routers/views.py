@@ -3,6 +3,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import timedelta
+import logging
 
 from app import schemas, services, models
 from app.database import get_db
@@ -15,6 +16,8 @@ from app.auth import (
     delete_auth_cookie,
     ACCESS_TOKEN_EXPIRE_MINUTES
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["views"])
 templates = Jinja2Templates(directory="templates")
@@ -37,6 +40,7 @@ async def get_template_context(request: Request, db: AsyncSession) -> dict:
 @router.get("/", response_class=HTMLResponse)
 async def home(request: Request, db: AsyncSession = Depends(get_db)):
     """Home/Landing page"""
+    logger.debug("[VIEW] GET / - Home page")
     context = await get_template_context(request, db)
     return templates.TemplateResponse("home.html", context)
 
@@ -46,9 +50,11 @@ async def home(request: Request, db: AsyncSession = Depends(get_db)):
 @router.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request, db: AsyncSession = Depends(get_db)):
     """Login page"""
+    logger.debug("[VIEW] GET /login - Login page")
     context = await get_template_context(request, db)
     # Redirect to posts if already logged in
     if context["is_authenticated"]:
+        logger.debug("[VIEW] User already authenticated, redirecting to /posts")
         return RedirectResponse(url="/posts", status_code=status.HTTP_302_FOUND)
     return templates.TemplateResponse("auth/login.html", context)
 
@@ -61,8 +67,10 @@ async def login_submit(
     db: AsyncSession = Depends(get_db)
 ):
     """Handle login form submission"""
+    logger.debug(f"[VIEW] POST /login - username: {username}")
     user = await services.get_user_by_username(db, username)
     if not user or not verify_password(password, user.hashed_password):
+        logger.warning(f"[VIEW] Login failed for {username}: Invalid credentials")
         context = await get_template_context(request, db)
         context["error"] = "Incorrect username or password"
         context["username"] = username
@@ -78,15 +86,18 @@ async def login_submit(
     # Set cookie and redirect
     response = RedirectResponse(url="/posts", status_code=status.HTTP_302_FOUND)
     set_auth_cookie(response, access_token)
+    logger.info(f"[VIEW] User logged in: {username}")
     return response
 
 
 @router.get("/register", response_class=HTMLResponse)
 async def register_page(request: Request, db: AsyncSession = Depends(get_db)):
     """Register page"""
+    logger.debug("[VIEW] GET /register - Register page")
     context = await get_template_context(request, db)
     # Redirect to posts if already logged in
     if context["is_authenticated"]:
+        logger.debug("[VIEW] User already authenticated, redirecting to /posts")
         return RedirectResponse(url="/posts", status_code=status.HTTP_302_FOUND)
     return templates.TemplateResponse("auth/register.html", context)
 
@@ -100,11 +111,13 @@ async def register_submit(
     db: AsyncSession = Depends(get_db)
 ):
     """Handle registration form submission"""
+    logger.debug(f"[VIEW] POST /register - username: {username}")
     context = await get_template_context(request, db)
     context["username"] = username
 
     # Validate passwords match
     if password != password_confirm:
+        logger.warning(f"[VIEW] Registration failed for {username}: Passwords do not match")
         context["error"] = "Passwords do not match"
         return templates.TemplateResponse("auth/register.html", context)
 
@@ -122,9 +135,11 @@ async def register_submit(
 
         response = RedirectResponse(url="/posts", status_code=status.HTTP_302_FOUND)
         set_auth_cookie(response, access_token)
+        logger.info(f"[VIEW] User registered and logged in: {username}")
         return response
 
     except ValueError as e:
+        logger.warning(f"[VIEW] Registration failed for {username}: {str(e)}")
         context["error"] = str(e)
         return templates.TemplateResponse("auth/register.html", context)
 
@@ -132,6 +147,7 @@ async def register_submit(
 @router.get("/logout")
 async def logout(request: Request):
     """Logout (delete cookie)"""
+    logger.info("[VIEW] User logged out")
     response = RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
     delete_auth_cookie(response)
     return response
@@ -147,6 +163,7 @@ async def posts_list(
     current_user: models.User = Depends(get_current_user_from_cookie)
 ):
     """Post list page with pagination"""
+    logger.debug(f"[VIEW] GET /posts - user: {current_user.username}, page: {page}")
     limit = 10
     skip = (page - 1) * limit
 
@@ -164,6 +181,7 @@ async def posts_list(
         "has_next": has_next,
         "has_prev": page > 1
     })
+    logger.debug(f"[VIEW] Posts list: {len(posts)} posts, page {page}")
     return templates.TemplateResponse("posts/list.html", context)
 
 
@@ -174,6 +192,7 @@ async def post_create_page(
     current_user: models.User = Depends(get_current_user_from_cookie)
 ):
     """Create post page"""
+    logger.debug(f"[VIEW] GET /posts/new - user: {current_user.username}")
     context = await get_template_context(request, db)
     context["action"] = "create"
     return templates.TemplateResponse("posts/form.html", context)
@@ -188,9 +207,11 @@ async def post_create_submit(
     current_user: models.User = Depends(get_current_user_from_cookie)
 ):
     """Handle create post form submission"""
+    logger.debug(f"[VIEW] POST /posts/new - user: {current_user.username}, title: {title[:50]}")
     post_data = schemas.PostCreate(title=title, content=content)
     post = await services.create_post(db, post_data, current_user.id)
 
+    logger.info(f"[VIEW] Post created: id={post.id} by user={current_user.username}")
     return RedirectResponse(
         url=f"/posts/{post.id}",
         status_code=status.HTTP_302_FOUND
@@ -205,10 +226,12 @@ async def post_detail(
     current_user: models.User = Depends(get_current_user_from_cookie)
 ):
     """Post detail page"""
+    logger.debug(f"[VIEW] GET /posts/{post_id} - user: {current_user.username}")
     include_deleted = current_user.is_admin
     post = await services.get_post(db, post_id, include_deleted=include_deleted)
 
     if not post:
+        logger.warning(f"[VIEW] Post not found: id={post_id}")
         raise HTTPException(status_code=404, detail="Post not found")
 
     # Check permissions
@@ -232,13 +255,16 @@ async def post_edit_page(
     current_user: models.User = Depends(get_current_user_from_cookie)
 ):
     """Edit post page"""
+    logger.debug(f"[VIEW] GET /posts/{post_id}/edit - user: {current_user.username}")
     post = await services.get_post(db, post_id, include_deleted=False)
 
     if not post:
+        logger.warning(f"[VIEW] Post not found for edit: id={post_id}")
         raise HTTPException(status_code=404, detail="Post not found")
 
     # Check authorization
     if post.author_id != current_user.id and not current_user.is_admin:
+        logger.warning(f"[VIEW] Unauthorized edit attempt: post={post_id}, user={current_user.username}")
         raise HTTPException(status_code=403, detail="Not authorized")
 
     context = await get_template_context(request, db)
@@ -259,18 +285,22 @@ async def post_edit_submit(
     current_user: models.User = Depends(get_current_user_from_cookie)
 ):
     """Handle edit post form submission"""
+    logger.debug(f"[VIEW] POST /posts/{post_id}/edit - user: {current_user.username}")
     post = await services.get_post(db, post_id, include_deleted=False)
 
     if not post:
+        logger.warning(f"[VIEW] Post not found for edit: id={post_id}")
         raise HTTPException(status_code=404, detail="Post not found")
 
     # Check authorization
     if post.author_id != current_user.id and not current_user.is_admin:
+        logger.warning(f"[VIEW] Unauthorized edit attempt: post={post_id}, user={current_user.username}")
         raise HTTPException(status_code=403, detail="Not authorized")
 
     post_data = schemas.PostUpdate(title=title, content=content)
     await services.update_post(db, post_id, post_data)
 
+    logger.info(f"[VIEW] Post updated: id={post_id} by user={current_user.username}")
     return RedirectResponse(
         url=f"/posts/{post_id}",
         status_code=status.HTTP_302_FOUND
@@ -285,17 +315,21 @@ async def post_delete_submit(
     current_user: models.User = Depends(get_current_user_from_cookie)
 ):
     """Handle post deletion"""
+    logger.debug(f"[VIEW] POST /posts/{post_id}/delete - user: {current_user.username}")
     post = await services.get_post(db, post_id, include_deleted=False)
 
     if not post:
+        logger.warning(f"[VIEW] Post not found for delete: id={post_id}")
         raise HTTPException(status_code=404, detail="Post not found")
 
     # Check authorization
     if post.author_id != current_user.id and not current_user.is_admin:
+        logger.warning(f"[VIEW] Unauthorized delete attempt: post={post_id}, user={current_user.username}")
         raise HTTPException(status_code=403, detail="Not authorized")
 
     await services.soft_delete_post(db, post_id)
 
+    logger.info(f"[VIEW] Post deleted: id={post_id} by user={current_user.username}")
     return RedirectResponse(url="/posts", status_code=status.HTTP_302_FOUND)
 
 
@@ -308,6 +342,7 @@ async def profile_page(
     current_user: models.User = Depends(get_current_user_from_cookie)
 ):
     """User profile/dashboard page"""
+    logger.debug(f"[VIEW] GET /profile - user: {current_user.username}")
     # Get user's posts
     include_deleted = current_user.is_admin
     all_posts = await services.get_posts(db, skip=0, limit=1000, include_deleted=include_deleted)
@@ -318,4 +353,5 @@ async def profile_page(
         "user_posts": user_posts,
         "total_posts": len(user_posts)
     })
+    logger.debug(f"[VIEW] Profile page: {len(user_posts)} posts for user={current_user.username}")
     return templates.TemplateResponse("profile.html", context)
