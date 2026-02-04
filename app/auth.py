@@ -6,9 +6,12 @@ from fastapi import Depends, HTTPException, status, Request, Response
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 import os
+import logging
 
 from . import schemas, models
 from .database import get_db
+
+logger = logging.getLogger(__name__)
 
 # Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -121,7 +124,11 @@ async def get_current_user_optional(
 ) -> Optional[models.User]:
     """Get current user from cookie or return None"""
     token = request.cookies.get(COOKIE_NAME)
+    logger.info(f"[AUTH] Path: {request.url.path}, Method: {request.method}")
+    logger.info(f"[AUTH] Cookie token exists: {token is not None}")
+
     if not token:
+        logger.warning("[AUTH] No token in cookie")
         return None
 
     # Remove "Bearer " prefix if present
@@ -132,12 +139,15 @@ async def get_current_user_optional(
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str = payload.get("sub")
         if username is None:
+            logger.warning("[AUTH] No username in token payload")
             return None
 
         from .services import get_user_by_username
         user = await get_user_by_username(db, username=username)
+        logger.info(f"[AUTH] User found: {user.username if user else 'None'}")
         return user
-    except JWTError:
+    except JWTError as e:
+        logger.error(f"[AUTH] JWT decode error: {e}")
         return None
 
 
